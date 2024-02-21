@@ -14,8 +14,10 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
+#include "esp_log.h"
+
 #include "tft.h"
-#include "spiffs_vfs.h"
+// #include "spiffs_vfs.h"
 
 #ifdef CONFIG_EXAMPLE_USE_WIFI
 
@@ -27,11 +29,14 @@
 
 #endif
 
+#include "camera.h"
 
 // ==========================================================
 // Define which spi bus to use TFT_VSPI_HOST or TFT_HSPI_HOST
 #define SPI_BUS TFT_HSPI_HOST
 // ==========================================================
+#define spiffs_is_mounted 0
+#define SPIFFS_BASE_PATH "/spiffs"
 
 
 static int _demo_pass = 0;
@@ -332,9 +337,9 @@ static void test_times() {
 		tstart = clock();
 		TFT_fillWindow(TFT_BLACK);
 		t1 = clock() - tstart;
-		printf("     Clear screen time: %u ms\r\n", t1);
+		printf("     Clear screen time: %lu ms\r\n", t1);
 		TFT_setFont(SMALL_FONT, NULL);
-		sprintf(tmp_buff, "Clear screen: %u ms", t1);
+		sprintf(tmp_buff, "Clear screen: %lu ms", t1);
 		TFT_print(tmp_buff, 0, 140);
 
 		color_t *color_line = heap_caps_malloc((tft_width*3), MALLOC_CAP_DMA);
@@ -356,14 +361,37 @@ static void test_times() {
 			t2 = clock() - tstart;
 			disp_deselect();
 
-			printf("Send color buffer time: %u us (%d pixels)\r\n", t2, tft_dispWin.x2-tft_dispWin.x1+1);
+			printf("Send color buffer time: %lu us (%d pixels)\r\n", t2, tft_dispWin.x2-tft_dispWin.x1+1);
 			free(color_line);
 
-			sprintf(tmp_buff, "   Send line: %u us", t2);
+			sprintf(tmp_buff, "   Send line: %lu us", t2);
 			TFT_print(tmp_buff, 0, 144+TFT_getfontheight());
 		}
 		Wait(GDEMO_INFO_TIME);
     }
+}
+
+static void video_feed() {
+	camera_init();
+	camera_fb_t *fb;
+
+	TickType_t start, end;
+	uint32_t time_taken_for_one_frame;
+	float fps;
+	while(true) {
+		start = xTaskGetTickCount();
+		fb = NULL;
+		get_image(&fb);
+
+		TFT_jpg_image(CENTER, CENTER, 1, NULL, fb->buf, fb->len);
+		Wait(1);
+		return_image(fb);
+		end = xTaskGetTickCount();
+		time_taken_for_one_frame = (end-start)*portTICK_PERIOD_MS;
+		fps = (float)1000/(float)time_taken_for_one_frame;
+		ESP_LOGI(__FUNCTION__, "Took a total of %" PRIu32 " [ms], fps: %f"  , time_taken_for_one_frame, fps);
+	}
+
 }
 
 // Image demo
@@ -388,8 +416,8 @@ static void disp_images() {
 		tstart = clock();
 		TFT_jpg_image(CENTER, CENTER, 0, SPIFFS_BASE_PATH"/images/test3.jpg", NULL, 0);
 		tstart = clock() - tstart;
-		if (doprint) printf("       JPG Decode time: %u ms\r\n", tstart);
-		sprintf(tmp_buff, "Decode time: %u ms", tstart);
+		if (doprint) printf("       JPG Decode time: %lu ms\r\n", tstart);
+		sprintf(tmp_buff, "Decode time: %lu ms", tstart);
 		update_header(NULL, tmp_buff);
 		Wait(-GDEMO_INFO_TIME);
 
@@ -399,8 +427,8 @@ static void disp_images() {
 			tstart = clock();
 			TFT_bmp_image(CENTER, CENTER, scale, SPIFFS_BASE_PATH"/images/tiger.bmp", NULL, 0);
 			tstart = clock() - tstart;
-			if (doprint) printf("    BMP time, scale: %d: %u ms\r\n", scale, tstart);
-			sprintf(tmp_buff, "Decode time: %u ms", tstart);
+			if (doprint) printf("    BMP time, scale: %d: %lu ms\r\n", scale, tstart);
+			sprintf(tmp_buff, "Decode time: %lu ms", tstart);
 			update_header(NULL, tmp_buff);
 			Wait(-500);
 		}
@@ -1082,19 +1110,22 @@ void tft_demo() {
 
 		disp_header("Welcome to ESP32");
 
-		test_times();
-		font_demo();
-		line_demo();
-		aline_demo();
-		rect_demo();
-		circle_demo();
-		ellipse_demo();
-		arc_demo();
-		triangle_demo();
-		poly_demo();
-		pixel_demo();
-		disp_images();
-		touch_demo();
+		// test_times();
+		// font_demo();
+		// line_demo();
+		// aline_demo();
+		// rect_demo();
+		// circle_demo();
+		// ellipse_demo();
+		// arc_demo();
+		// triangle_demo();
+		// poly_demo();
+		// pixel_demo();
+
+		video_feed();
+
+		// disp_images();
+		// touch_demo();
 
 		_demo_pass++;
 	}
@@ -1317,7 +1348,7 @@ void app_main()
 	ret = spi_lobo_device_deselect(spi);
     assert(ret==ESP_OK);
 
-	printf("SPI: attached display device, speed=%u\r\n", spi_lobo_get_speed(spi));
+	printf("SPI: attached display device, speed=%lu\r\n", spi_lobo_get_speed(spi));
 	printf("SPI: bus uses native pins: %s\r\n", spi_lobo_uses_native_pins(spi) ? "true" : "false");
 
 #if USE_TOUCH > TOUCH_TYPE_NONE
@@ -1356,11 +1387,11 @@ void app_main()
 	
 	// ---- Detect maximum read speed ----
 	tft_max_rdclock = find_rd_speed();
-	printf("SPI: Max rd speed = %u\r\n", tft_max_rdclock);
+	printf("SPI: Max rd speed = %lu\r\n", tft_max_rdclock);
 
     // ==== Set SPI clock used for display operations ====
 	spi_lobo_set_speed(spi, DEFAULT_SPI_CLOCK);
-	printf("SPI: Changed speed to %u\r\n", spi_lobo_get_speed(spi));
+	printf("SPI: Changed speed to %lu\r\n", spi_lobo_get_speed(spi));
 
     printf("\r\n---------------------\r\n");
 	printf("Graphics demo started\r\n");
@@ -1412,21 +1443,21 @@ void app_main()
     	Wait(-2000);
     }
 #endif
-
+	TFT_invertDisplay(INVERT_OFF);
 	disp_header("File system INIT");
     tft_fg = TFT_CYAN;
 	TFT_print("Initializing SPIFFS...", CENTER, CENTER);
     // ==== Initialize the file system ====
     printf("\r\n\n");
-	vfs_spiffs_register();
-    if (!spiffs_is_mounted) {
-    	tft_fg = TFT_RED;
-    	TFT_print("SPIFFS not mounted !", CENTER, LASTY+TFT_getfontheight()+2);
-    }
-    else {
-    	tft_fg = TFT_GREEN;
-    	TFT_print("SPIFFS Mounted.", CENTER, LASTY+TFT_getfontheight()+2);
-    }
+	// esp_vfs_spiffs_register();
+    // if (!spiffs_is_mounted) {
+    // 	tft_fg = TFT_RED;
+    // 	TFT_print("SPIFFS not mounted !", CENTER, LASTY+TFT_getfontheight()+2);
+    // }
+    // else {
+    // 	tft_fg = TFT_GREEN;
+    // 	TFT_print("SPIFFS Mounted.", CENTER, LASTY+TFT_getfontheight()+2);
+    // }
 
 	Wait(-2000);
 

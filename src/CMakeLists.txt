@@ -1,4 +1,4 @@
-set(SOURCES tft_demo.c)
+set(SOURCES tft_demo.c camera.c)
 idf_component_register(
         SRCS ${SOURCES}
         REQUIRES

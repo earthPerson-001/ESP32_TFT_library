@@ -35,3 +35,9 @@ local/
 *.map
 **/.DS_Store
 mkspiffs/
+
+# platformio
+.pio 
+
+# vscode
+.vscode
